@@ -49,26 +49,55 @@ class geoWriter :
         self.il = 0
         self.ill = 0
         self.geof = open(filename, "w")
-        self.geof.write("IP = newp;\n")
-        self.geof.write("IL = newl;\n")
-        self.geof.write("IS = news;\n")
-        self.geof.write("ILL = newll;\n")
+        self.geof.write("//IP = newp1;\n")
+        self.geof.write("//IL = newl;\n")
+        self.geof.write("//IS = news;\n")
+        self.geof.write("//ILL = newll;\n")
         self.physicals = {}
         self.lineloops = []
         self.lineInSurface = []
         self.pointInSurface = []
         self.surfaceInSurface = []
         self.physicalsInnerSurface = {}
-
+        self.allpointsx = []
+        self.allpointsy = []
+        self.allpointslc = []
+        self.maxx = 0.0
+        self.maxy = 0.0
+        self.allpoint = []
+        self.allLine = []
+        self.allLoop = []
     def writePoint(self, pt, lc) :
         if lc is not None :
-            self.geof.write("Point(IP+%d) = {%.16g, %.16g, 0, %g};\n" %
-                    (self.ip, pt[0], pt[1], lc))
+            # self.geof.write("Point(IP+%d) = {%.16g, %.16g, 0, %g};\n" %
+            #         (self.ip, pt[0], pt[1], lc))
+            self.allpointsx.append(pt[0])
+            self.allpointsy.append(pt[1])   
+            self.allpointslc.append(lc)
         else :
-            self.geof.write("Point(IP+%d) = {%.16g, %.16g, 0};\n" %
-                    (self.ip, pt[0], pt[1]))
+            self.allpointsx.append(pt[0])
+            self.allpointsy.append(pt[1])   
+            self.allpointslc.append(1)
+            # self.geof.write("Point(IP+%d) = {%.16g, %.16g, 0};\n" %
+            #         (self.ip, pt[0], pt[1]))
         self.ip += 1
         return self.ip - 1
+    
+    def writePointnew(self) :
+        self.maxx = min(self.allpointsx)
+        self.maxy = min(self.allpointsy)
+        self.geof.write("//x {:.4f} \n".format(self.maxx))
+        self.geof.write("//y {:.4f} \n".format(self.maxy))
+        for i in range(len(self.allpointsx)):
+            self.geof.write("Point(%d) = {%.4f, %.4f, 0, %g};\n" %
+                    (i, (self.allpointsx[i] - self.maxx), (self.allpointsy[i] - self.maxy), self.allpointslc[i]))
+            
+        for i in range(len(self.allLine)):
+            self.geof.write("Line(%d) = {%d, %d}; \n" % (i, self.allLine[i][0], self.allLine[i][1]))
+
+        for i in range(len(self.allLoop)):
+            self.geof.write("Line Loop(%d) = {" % i +", ".join([str(j) for j in self.allLoop[i]]) + "};\n")
+        return 
 
     def writePointCheckLineLoops(self, pt, lc) :
         for ll in self.lineloops :
@@ -79,10 +108,26 @@ class geoWriter :
         return self.writePoint(pt, lc)
 
     def writeLine(self, pts) :
-        self.geof.write("Spline(IL+%d) = {IP+" % self.il +
+        self.geof.write("Line(IL+%d) = {IP+" % self.il +
             ", IP+".join([str(i) for i in pts]) + "};\n")
         self.il += 1
         return self.il - 1
+    
+    def writeLineNew(self, pts) :
+        # self.geof.write("Line(IL+%d) = {IP+" % self.il +
+        #     ", IP+".join([str(i) for i in pts]) + "};\n")
+        tempLineloop = []
+
+        for i in range(len(pts)-1):
+            p1 = pts[i]
+            p2 = pts[i+1]
+            self.allLine.append([p1, p2])
+            tempLineloop.append(self.il)
+            self.il += 1
+
+        self.allLoop.append(tempLineloop)
+        self.ill += 1
+        return 0
     
     def writeLineLoop(self, ll) :
         strid = [("IL+"+str(i)) if o else ("-IL-"+str(i)) for i, o in ll.lines]
@@ -107,10 +152,14 @@ class geoWriter :
         else :
             id1 = self.writePointCheckLineLoops(pts[-1], lc)
         ids = [id0] + [self.writePoint(x, lc) for x in pts[1:-1]] + [id1]
+
+        #here write new pints
+        #
+
         if forceAllBnd :
-            lids = [self.writeLine((ids[i],ids[i+1])) for i in range(len(ids)-1)]
+            lids = [self.writeLineNew((ids[i],ids[i+1])) for i in range(len(ids)-1)]
         else :
-            lids = [self.writeLine(ids)] 
+            lids = [self.writeLineNew(ids)] 
 
         if physical :
             for lid in lids :
@@ -118,6 +167,7 @@ class geoWriter :
                     self.physicals[physical].append(lid)
                 else :
                     self.physicals[physical] = [lid]
+
         ll = lineloop(pts[0], pts[-1], id0, id1, lids)
         if inside and not ll.closed():
                 self.lineInSurface += lids
@@ -144,22 +194,25 @@ class geoWriter :
         self.geof.write("Background Field = NF;\n")
 
     def __del__(self) :
-        self.geof.write("Plane Surface(IS) = {ILL:ILL+%d};\n" % (self.ill - 1))
-        self.geof.write("Physical Surface(\"Domain\") = {IS};\n")
-        for iS, innerS in enumerate(self.surfaceInSurface):
-            ill = self.writeLineLoop(innerS)
-            self.geof.write("Plane Surface(IS+%d) = {ILL+%d};\n"%(iS+1,ill))
-        for iS in range(len(self.surfaceInSurface)+1):
-            if self.lineInSurface :
-                self.geof.write("Line {" + ",".join(["IP+%d" % i for i in self.lineInSurface]) + "} In Surface{IS+%d};\n"%(iS))
-            if self.pointInSurface :
-                self.geof.write("Point {" + ",".join(["IL+%d" % i for i in self.pointInSurface]) + "} In Surface{IS+%d};\n"%(iS))
-        print(self.physicalsInnerSurface)
-        for tag, ids in self.physicalsInnerSurface.items() :
-            print(tag,ids)
-            self.geof.write("Physical Surface(\"" + tag + "\") = {" + ",".join(("IS + " + str(i+1)) for i in ids) + "};\n")
-        for tag, ids in self.physicals.items() :
-            self.geof.write("Physical Line(\"" + tag + "\") = {" + ",".join(("IL + " + str(i)) for i in ids) + "};\n")
+
+        self.writePointnew()
+
+        # self.geof.write("Plane Surface(IS) = {ILL:ILL+%d};\n" % (self.ill - 1))
+        # self.geof.write("Physical Surface(\"Domain\") = {IS};\n")
+        # for iS, innerS in enumerate(self.surfaceInSurface):
+        #     ill = self.writeLineLoop(innerS)
+        #     self.geof.write("Plane Surface(IS+%d) = {ILL+%d};\n"%(iS+1,ill))
+        # for iS in range(len(self.surfaceInSurface)+1):
+        #     if self.lineInSurface :
+        #         self.geof.write("Line {" + ",".join(["IP+%d" % i for i in self.lineInSurface]) + "} In Surface{IS+%d};\n"%(iS))
+        #     if self.pointInSurface :
+        #         self.geof.write("Point {" + ",".join(["IL+%d" % i for i in self.pointInSurface]) + "} In Surface{IS+%d};\n"%(iS))
+        # print(self.physicalsInnerSurface)
+        # for tag, ids in self.physicalsInnerSurface.items() :
+        #     print(tag,ids)
+        #     self.geof.write("Physical Surface(\"" + tag + "\") = {" + ",".join(("IS + " + str(i+1)) for i in ids) + "};\n")
+        # for tag, ids in self.physicals.items() :
+        #     self.geof.write("Physical Line(\"" + tag + "\") = {" + ",".join(("IL + " + str(i)) for i in ids) + "};\n")
         self.geof.close()
 
 
